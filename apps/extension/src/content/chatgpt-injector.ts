@@ -85,20 +85,10 @@ function injectText(el: HTMLElement, text: string) {
 }
 
 export class ChatGPTInjector {
+  private static activeJobTabId: number | null = null;
+
   public static init() {
     console.log('ApplyAI ChatGPT Bridge Loaded (Automated Mode)');
-    
-    // Only inject if there's a prompt parameter (new tab opened by extension)
-    const urlParams = new URLSearchParams(window.location.search);
-    const hasJobFillPrompt = urlParams.has('q');
-
-    if (hasJobFillPrompt) {
-      this.injectAutomatedUI();
-      // Wait for React to fully mount before trying to paste
-      setTimeout(() => {
-        this.pasteAndSubmitPrompt(urlParams.get('q')!);
-      }, 3000);
-    }
   }
 
   public static injectAutomatedUI(status = 'working') {
@@ -159,7 +149,8 @@ export class ChatGPTInjector {
     if (el) el.innerHTML = msgs[status] || status;
   }
 
-  public static async pasteAndSubmitPrompt(prompt: string, resumeFile?: any) {
+  public static async pasteAndSubmitPrompt(prompt: string, resumeFile?: any, jobTabId?: number | null) {
+    this.activeJobTabId = jobTabId || null;
     this.updateStatus('pasting');
 
     // ── STEP 1: Find the textarea ──────────────────────────────────
@@ -228,68 +219,95 @@ export class ChatGPTInjector {
   }
 
   private static waitForAnswerAndSend() {
-    console.log('ApplyAI: Starting generation monitor...');
+    console.log('ApplyAI: Starting robust generation monitor...');
 
-    // Wait 3s for generation to begin, then poll every second
-    setTimeout(() => {
-      let stableCount = 0; // consecutive "not generating" checks before we scrape
+    // Try multiple message selectors to find assistant messages
+    const getAssistantMessages = () => {
+      const messageSels = [
+        'div[data-message-author-role="assistant"] .markdown',
+        '[data-testid^="conversation-turn-"] .markdown',
+        '.agent-turn .markdown',
+        'div.markdown'
+      ];
+      for (const sel of messageSels) {
+        const all = document.querySelectorAll(sel);
+        if (all.length > 0) return Array.from(all);
+      }
+      return [];
+    };
 
-      const checkFinished = setInterval(() => {
-        const stopBtn = findElement(STOP_BTN_SELECTORS);
-        const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
-        const isGenerating = !!stopBtn || !sendBtn || sendBtn.disabled;
+    // The number of messages BEFORE our prompt generates an answer
+    const initialMessageCount = getAssistantMessages().length;
+    let stableTextLength = -1;
+    let stableCount = 0;
 
-        console.log('ApplyAI poll — stopBtn:', !!stopBtn, 'sendBtn:', !!sendBtn, 'disabled:', sendBtn?.disabled, '→ generating:', isGenerating);
+    const checkInterval = setInterval(() => {
+      const messages = getAssistantMessages();
+      
+      // Has a new message appeared yet?
+      if (messages.length > initialMessageCount || (initialMessageCount === 0 && messages.length > 0)) {
+        const latestMessage = messages[messages.length - 1];
+        const currentLength = latestMessage.textContent?.length || 0;
+        
+        console.log(`ApplyAI poll — New message found! Length: ${currentLength}`);
 
-        if (!isGenerating) {
+        // If the length hasn't changed since the last poll, increment stability counter
+        if (currentLength === stableTextLength && currentLength > 0) {
           stableCount++;
-          if (stableCount >= 2) { // require 2 consecutive stable checks
-            console.log('ApplyAI: Generation complete.');
-            clearInterval(checkFinished);
-            setTimeout(() => this.scrapeAndSend(), 1500);
+          // Also verify the "Stop" button is gone just to be extra sure
+          const stopBtn = findElement(STOP_BTN_SELECTORS);
+          
+          if (stableCount >= 2 && !stopBtn) { 
+            console.log('ApplyAI: Text length stabilized and stop button gone. Generation complete.');
+            clearInterval(checkInterval);
+            this.scrapeAndSend(latestMessage);
           }
         } else {
+          // Length is still changing, reset stability counter
+          stableTextLength = currentLength;
           stableCount = 0;
         }
-      }, 1000);
+      } else {
+        console.log(`ApplyAI poll — Waiting for new message to appear... (current count: ${messages.length}, initial: ${initialMessageCount})`);
+        
+        // Failsafe: if the stop button isn't there and the send button is back, 
+        // AND we've been waiting a bit, maybe it failed or we missed the injection
+        const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
+        const stopBtn = findElement(STOP_BTN_SELECTORS);
+        if (!stopBtn && sendBtn && !sendBtn.disabled && stableCount > 10) {
+           console.warn('ApplyAI: Send button active but no new message appeared after 10s.');
+           // We'll keep polling until the safety timeout just in case
+        }
+        stableCount++; // Abuse stableCount as a timeout counter while waiting for first char
+      }
+    }, 1000);
 
-      // Safety timeout: give up after 3 minutes
-      setTimeout(() => clearInterval(checkFinished), 180000);
-    }, 3000);
+    // Safety timeout: give up after 90 seconds
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      console.error('ApplyAI: Safety timeout reached while waiting for generation.');
+      this.updateStatus('error');
+    }, 90000);
   }
 
-  private static scrapeAndSend() {
-    // Try multiple message selectors
-    const messageSels = [
-      'div[data-message-author-role="assistant"]',
-      '[data-testid="conversation-turn-"] .markdown',
-      '.agent-turn .markdown',
-      'div.markdown'
-    ];
+  private static scrapeAndSend(messageNode: Element) {
+    const textContent = messageNode.textContent || '';
+    console.log('ApplyAI: Scraped answer, length =', textContent.length);
 
-    let lastMessage: Element | null = null;
-    for (const sel of messageSels) {
-      const all = document.querySelectorAll(sel);
-      if (all.length > 0) { lastMessage = all[all.length - 1]; break; }
-    }
-
-    if (!lastMessage) {
-      console.warn('ApplyAI: No assistant message found in DOM');
+    if (textContent.length === 0) {
       this.updateStatus('error');
       return;
     }
 
-    const textContent = lastMessage.textContent || '';
-    console.log('ApplyAI: Scraped answer, length =', textContent.length);
-
     chrome.runtime.sendMessage({
       type: 'CHATGPT_ANSWER_READY',
-      payload: { answer: textContent }
+      payload: { answer: textContent, jobTabId: this.activeJobTabId }
     } as ExtensionMessage, () => {
       this.updateStatus('done');
       setTimeout(() => {
         const container = document.getElementById('applyai-automation-container');
         if (container) container.remove();
+        this.activeJobTabId = null;
       }, 4000);
     });
   }
@@ -298,13 +316,13 @@ export class ChatGPTInjector {
 // ── Message listener for when extension reuses existing ChatGPT tab ──
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
   if (message.type === 'PASTE_PROMPT_IN_CHATGPT') {
-    const { prompt, resumeFile } = message.payload;
+    const { prompt, resumeFile, jobTabId } = message.payload;
 
     ChatGPTInjector.injectAutomatedUI('pasting');
 
     // Small delay to ensure content script is fully ready
     setTimeout(() => {
-      ChatGPTInjector.pasteAndSubmitPrompt(prompt, resumeFile);
+      ChatGPTInjector.pasteAndSubmitPrompt(prompt, resumeFile, jobTabId);
     }, 800);
 
     sendResponse({ success: true });

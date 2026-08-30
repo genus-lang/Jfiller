@@ -32,9 +32,13 @@ export class FormFiller {
   }
 
   public static async fillCustomFields(mappings: FieldMapping[], customData: Record<string, string>): Promise<void> {
+    const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const [label, answer] of Object.entries(customData)) {
-      // Find the mapping whose label exactly matches the key returned by ChatGPT
-      const mapping = mappings.find(m => m.label === label);
+      const normalizedLabel = normalize(label);
+      
+      // Find the mapping whose label matches fuzzily
+      const mapping = mappings.find(m => m.label && normalize(m.label) === normalizedLabel);
       if (!mapping) continue;
 
       const element = document.getElementById(mapping.fieldId);

@@ -2,26 +2,21 @@ import { ExtensionMessage} from '../messaging/message-types';
 import { ProfileService } from '../profile/profile-service';
 
 export class ChatGPTManager {
-  private static activeQuestion: string | null = null;
-  private static activeJobTabId: number | null = null;
-
   public static init() {
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
       
       if (message.type === 'ASK_CHATGPT') {
-        this.activeQuestion = message.payload.question;
-        this.activeJobTabId = message.payload.jobTabId || null;
-        this.openOrFocusChatGPT(this.activeQuestion!, message.payload.resumeFile);
+        this.openOrFocusChatGPT(message.payload.question, message.payload.resumeFile, message.payload.jobTabId);
         sendResponse({ success: true });
         return false;
       }
 
       if (message.type === 'CHATGPT_ANSWER_READY') {
-        const answer = message.payload.answer;
+        const { answer, jobTabId } = message.payload;
         console.log('Received Answer from ChatGPT:', answer);
         
-        // Check if the answer contains a JSON payload (used for Resume Parsing)
-        const jsonMatch = answer.match(/```json\n([\s\S]*?)\n```/) || answer.match(/\{[\s\S]*\}/);
+        // Try to extract JSON directly first
+        const jsonMatch = answer.match(/```(?:json)?\n([\s\S]*?)\n```/) || answer.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try {
             const parsedData = JSON.parse(jsonMatch[1] || jsonMatch[0]);
@@ -42,13 +37,18 @@ export class ChatGPTManager {
                 }
                 ProfileService.saveProfile(updatedProfile);
               });
-            } else if (parsedData.jobfill_custom_answers) {
-              console.log('Parsed Custom Fields Answers, beaming back to job tab...');
-              if (this.activeJobTabId) {
-                chrome.tabs.sendMessage(this.activeJobTabId, {
+            } else {
+              // It's likely custom fields data!
+              const customData = parsedData.jobfill_custom_answers || parsedData;
+              console.log('Parsed Custom Fields Answers, beaming back to job tab:', jobTabId, customData);
+              if (jobTabId) {
+                chrome.tabs.sendMessage(jobTabId, {
                   type: 'AUTOFILL_CUSTOM_FIELDS',
-                  payload: { customData: parsedData.jobfill_custom_answers }
+                  payload: { customData }
                 });
+                
+                // Also bring the job tab back to focus so the user sees the answers fill!
+                chrome.tabs.update(jobTabId, { active: true });
               }
             }
           } catch (e) {
@@ -57,15 +57,13 @@ export class ChatGPTManager {
         }
 
         // Clean up
-        this.activeQuestion = null;
-        this.activeJobTabId = null;
         sendResponse({ success: true });
         return false;
       }
     });
   }
 
-  private static openOrFocusChatGPT(prompt: string, resumeFile?: any) {
+  private static openOrFocusChatGPT(prompt: string, resumeFile?: any, jobTabId?: number | null) {
     chrome.tabs.query({ url: "https://chatgpt.com/*" }, (tabs) => {
       if (tabs && tabs.length > 0) {
         // Found an existing ChatGPT tab — use it but NEVER focus or switch to it
@@ -74,18 +72,18 @@ export class ChatGPTManager {
         setTimeout(() => {
           chrome.tabs.sendMessage(tab.id!, {
             type: 'PASTE_PROMPT_IN_CHATGPT',
-            payload: { prompt, resumeFile }
+            payload: { prompt, resumeFile, jobTabId }
           });
         }, 300);
 
       } else {
         // No ChatGPT tab — create one HIDDEN in the background
-        this.createHiddenBackgroundTab(prompt, resumeFile);
+        this.createHiddenBackgroundTab(prompt, resumeFile, jobTabId);
       }
     });
   }
 
-  private static createHiddenBackgroundTab(prompt: string, resumeFile?: any) {
+  private static createHiddenBackgroundTab(prompt: string, resumeFile?: any, jobTabId?: number | null) {
     // Create the tab in background (active: false) and minimized so user never sees it switch
     chrome.windows.getCurrent((currentWindow) => {
       chrome.tabs.create({ 
@@ -104,7 +102,7 @@ export class ChatGPTManager {
             setTimeout(() => {
               chrome.tabs.sendMessage(tab.id!, {
                 type: 'PASTE_PROMPT_IN_CHATGPT',
-                payload: { prompt, resumeFile }
+                payload: { prompt, resumeFile, jobTabId }
               });
             }, 2000);
           }
