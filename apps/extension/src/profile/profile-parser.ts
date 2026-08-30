@@ -52,6 +52,10 @@ export class ProfileParser {
       flat['resume'] = profile.resumeFile;
     }
 
+    if (profile.profilePhoto) {
+      flat['photo'] = profile.profilePhoto;
+    }
+
     return flat;
   }
 }

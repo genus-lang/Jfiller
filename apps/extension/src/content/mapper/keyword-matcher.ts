@@ -22,6 +22,7 @@ export class KeywordMatcher {
     skills: ['skills', 'technologies', 'tools'],
     experience: ['experience', 'work history'],
     resume: ['resume', 'cv', 'curriculum vitae'],
+    photo: ['photo', 'picture', 'avatar', 'profile image', 'headshot'],
     unknown: []
   };
 

@@ -19,6 +19,7 @@ export type ProfileField =
   | 'skills'
   | 'experience'
   | 'resume'
+  | 'photo'
   | 'unknown';
 
 export interface Education {
@@ -50,6 +51,14 @@ export interface Project {
   technologies: string[];
 }
 
+export interface ResumeFile {
+  id: string;
+  name: string;
+  type: string;
+  base64: string;
+  uploadDate: number;
+}
+
 export interface MasterProfile {
   personal: {
     firstName: string;
@@ -75,11 +84,9 @@ export interface MasterProfile {
   projects: Project[];
   skills: string[];
   resumeText?: string;
-  resumeFile?: {
-    name: string;
-    type: string;
-    base64: string;
-  };
+  profilePhoto?: ResumeFile;
+  resumeFile?: ResumeFile;
+  savedResumes?: ResumeFile[];
 }
 
 export interface SavedAnswer {

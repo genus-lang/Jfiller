@@ -40,7 +40,7 @@
     toggleBtn.style.cssText = `
       position: fixed;
       top: 16px;
-      right: 16px;
+      right: 416px;
       z-index: 2147483646;
       width: 40px;
       height: 40px;

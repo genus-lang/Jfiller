@@ -12,10 +12,29 @@ const App: React.FC = () => {
     return (localStorage.getItem('jobfill_theme') as 'dark' | 'light') || 'dark';
   });
 
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('jobfill_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    chrome.storage.local.get(['applyai_profile'], (result) => {
+      if (result.applyai_profile?.profilePhoto?.base64) {
+        setProfilePhoto(result.applyai_profile.profilePhoto.base64);
+      }
+    });
+
+    const listener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes['applyai_profile']) {
+        const photo = changes['applyai_profile'].newValue?.profilePhoto?.base64;
+        setProfilePhoto(photo || null);
+      }
+    };
+    chrome.storage.local.onChanged.addListener(listener);
+    return () => chrome.storage.local.onChanged.removeListener(listener);
+  }, []);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -40,21 +59,35 @@ const App: React.FC = () => {
       {/* Header */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)' }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ 
-            width: '24px', 
-            height: '24px', 
-            borderRadius: '6px', 
-            background: 'linear-gradient(135deg, var(--primary-accent), var(--secondary-accent))',
-            marginRight: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontWeight: 700,
-            fontSize: '14px'
-          }}>
-            A
-          </div>
+          {profilePhoto ? (
+            <img 
+              src={profilePhoto} 
+              alt="Profile" 
+              style={{ 
+                width: '24px', 
+                height: '24px', 
+                borderRadius: '6px', 
+                marginRight: '12px',
+                objectFit: 'cover'
+              }} 
+            />
+          ) : (
+            <div style={{ 
+              width: '24px', 
+              height: '24px', 
+              borderRadius: '6px', 
+              background: 'linear-gradient(135deg, var(--primary-accent), var(--secondary-accent))',
+              marginRight: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontWeight: 700,
+              fontSize: '14px'
+            }}>
+              A
+            </div>
+          )}
           <span style={{ fontWeight: 600, fontSize: '16px', letterSpacing: '0.02em' }}>ApplyAI</span>
         </div>
         
@@ -79,7 +112,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {currentView === 'dashboard' && <DashboardView />}
         {currentView === 'profile' && <ProfileView />}
         {currentView === 'settings' && <SettingsView />}

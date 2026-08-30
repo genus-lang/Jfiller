@@ -77,7 +77,7 @@ export const DashboardView: React.FC = () => {
   const currentStateIndex = pipelineState ? states.indexOf(pipelineState) : -1;
 
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
       <div style={{ textAlign: 'center', marginBottom: '10px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', background: 'linear-gradient(135deg, var(--primary-accent), var(--secondary-accent))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ApplyAI</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Your Job Application Assistant</p>
@@ -98,7 +98,7 @@ export const DashboardView: React.FC = () => {
           )}
         </div>
         
-        <Button fullWidth onClick={handleAutofill} disabled={isLoading || fieldCount === 0 || pipelineState !== null} style={{ opacity: (isLoading || fieldCount === 0 || pipelineState !== null) ? 0.5 : 1 }}>
+        <Button fullWidth onClick={handleAutofill} disabled={isLoading || fieldCount === 0 || pipelineState !== null}>
           Autofill Form
         </Button>
 
@@ -111,7 +111,15 @@ export const DashboardView: React.FC = () => {
               chrome.runtime.sendMessage({ type: 'GET_PROFILE' } as ExtensionMessage, (response: GetProfileResponse) => {
                 if (chrome.runtime.lastError || !response.profile) return;
                 
-                const unknownFields = mappings.filter(m => m.requiresConfirmation && m.label);
+                if (activeTabId) {
+                  chrome.tabs.sendMessage(activeTabId, {
+                    type: 'AUTOFILL_FORM',
+                    payload: { profile: response.profile }
+                  } as ExtensionMessage).catch(console.error);
+                }
+
+                // Ask ChatGPT to fill EVERY field on the form based on the resume (except the file uploads)
+                const unknownFields = mappings.filter(m => m.label && m.profileField !== 'resume' && m.profileField !== 'photo');
                 const unknownLabels = unknownFields.map(m => m.label).join(', ');
                 
                 const profileWithoutFile = { ...response.profile };

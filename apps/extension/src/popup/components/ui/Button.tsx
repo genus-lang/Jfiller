@@ -20,11 +20,12 @@ export const Button: React.FC<ButtonProps> = ({
     borderRadius: '8px',
     fontWeight: 600,
     fontSize: '14px',
-    cursor: 'pointer',
+    cursor: props.disabled ? 'not-allowed' : 'pointer',
     transition: 'all 0.2s ease',
     width: fullWidth ? '100%' : 'auto',
     border: 'none',
-    outline: 'none'
+    outline: 'none',
+    opacity: props.disabled ? 0.6 : 1
   };
 
   const variants = {
@@ -45,17 +46,21 @@ export const Button: React.FC<ButtonProps> = ({
     }
   };
 
+  const mergedStyle = { ...baseStyle, ...variants[variant], ...(props.style || {}) };
+
   return (
     <button 
-      style={{ ...baseStyle, ...variants[variant] }}
       className={className}
+      {...props}
+      style={mergedStyle}
       onMouseEnter={(e) => {
         if(variant === 'primary') e.currentTarget.style.transform = 'translateY(-2px)';
+        if(props.onMouseEnter) props.onMouseEnter(e);
       }}
       onMouseLeave={(e) => {
         if(variant === 'primary') e.currentTarget.style.transform = 'translateY(0)';
+        if(props.onMouseLeave) props.onMouseLeave(e);
       }}
-      {...props}
     >
       {children}
     </button>

@@ -32,21 +32,25 @@ export const Input: React.FC<InputProps> = ({ label, id, ...props }) => {
     transition: 'background-color 0.2s, border-color 0.2s, box-shadow 0.2s',
   };
 
+  const mergedStyle = { ...inputStyle, ...(props.style || {}) };
+
   return (
     <div style={containerStyle}>
       <label htmlFor={id} style={labelStyle}>{label}</label>
       <input 
         id={id}
-        style={inputStyle}
+        {...props} 
+        style={mergedStyle}
         onFocus={(e) => {
           e.currentTarget.style.borderColor = 'var(--primary-accent)';
           e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99, 102, 241, 0.2)';
+          if (props.onFocus) props.onFocus(e);
         }}
         onBlur={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-light)';
           e.currentTarget.style.boxShadow = 'none';
+          if (props.onBlur) props.onBlur(e);
         }}
-        {...props} 
       />
     </div>
   );

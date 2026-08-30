@@ -12,11 +12,20 @@ export const ProfileView: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
+    const migrateProfile = (p: MasterProfile) => {
+      if (p && p.resumeFile && (!p.savedResumes || p.savedResumes.length === 0)) {
+        if (!p.resumeFile.id) p.resumeFile.id = 'legacy-' + Date.now();
+        if (!p.resumeFile.uploadDate) p.resumeFile.uploadDate = Date.now();
+        p.savedResumes = [p.resumeFile as any];
+      }
+      return p;
+    };
+
     // Load profile from background script on mount
     const fetchProfile = () => {
       chrome.runtime.sendMessage({ type: 'GET_PROFILE' } as ExtensionMessage, (response: GetProfileResponse) => {
         if (!chrome.runtime.lastError && response?.profile) {
-          setProfile(response.profile);
+          setProfile(migrateProfile(response.profile));
         }
       });
     };
@@ -25,7 +34,7 @@ export const ProfileView: React.FC = () => {
     // Listen for background updates (e.g., ChatGPT extracted the resume and saved it)
     const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes['applyai_profile']) {
-        setProfile(changes['applyai_profile'].newValue);
+        setProfile(migrateProfile(changes['applyai_profile'].newValue));
       }
     };
     chrome.storage.local.onChanged.addListener(storageListener);
@@ -54,28 +63,46 @@ export const ProfileView: React.FC = () => {
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       const resumeFile = {
+        id: Math.random().toString(36).substring(2, 9),
         name: file.name,
         type: file.type || 'application/pdf',
-        base64
+        base64,
+        uploadDate: Date.now()
       };
 
-      // 1. Update local React state immediately for UI feedback
       setProfile(prev => {
         if (!prev) return prev;
-        const updated = { ...prev, resumeFile };
-
-        // 2. Auto-save to chrome.storage.local immediately — no button click required
-        persistProfile(updated);
-
-        return updated;
+        const savedResumes = [...(prev.savedResumes || []), resumeFile];
+        const updated = { 
+          ...prev, 
+          savedResumes,
+          resumeFile: prev.resumeFile || resumeFile 
+        };
+        persistProfile(updated as any);
+        return updated as any;
       });
+      setIsImporting(false);
     };
     reader.readAsDataURL(file);
   };
 
-  const handleDeleteResume = () => {
+  const handleDeleteResume = (id: string) => {
     if (!profile) return;
-    const updated = { ...profile, resumeFile: undefined };
+    const savedResumes = (profile.savedResumes || []).filter(r => r.id !== id);
+    const isDeletingActive = profile.resumeFile?.id === id;
+    
+    const updated = { 
+      ...profile, 
+      savedResumes,
+      resumeFile: isDeletingActive ? savedResumes[0] : profile.resumeFile
+    };
+    setProfile(updated as any);
+    persistProfile(updated as any);
+  };
+
+  const handleSetActiveResume = (resume: any) => {
+    if (!profile) return;
+    const updated = { ...profile, resumeFile: resume };
     setProfile(updated);
     persistProfile(updated);
   };
@@ -97,8 +124,6 @@ export const ProfileView: React.FC = () => {
         resumeFile: profile.resumeFile
       }
     } as ExtensionMessage);
-    
-    setIsImporting(false);
   };
 
   const handlePersonalChange = (field: keyof MasterProfile['personal'], value: string) => {
@@ -109,6 +134,28 @@ export const ProfileView: React.FC = () => {
         [field]: value
       }
     } : prev);
+  };
+
+  const handlePhotoUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      const profilePhoto = {
+        id: Math.random().toString(36).substring(2, 9),
+        name: file.name,
+        type: file.type || 'image/jpeg',
+        base64,
+        uploadDate: Date.now()
+      };
+
+      setProfile(prev => {
+        if (!prev) return prev;
+        const updated = { ...prev, profilePhoto };
+        persistProfile(updated as any);
+        return updated as any;
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const tabStyle = (isActive: boolean) => ({
@@ -124,7 +171,7 @@ export const ProfileView: React.FC = () => {
   if (!profile) return <div style={{ padding: '20px', color: 'var(--text-secondary)' }}>Loading profile...</div>;
 
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, padding: '20px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Master Profile</h2>
         <Button variant="outline" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => setIsImporting(!isImporting)}>
@@ -132,42 +179,62 @@ export const ProfileView: React.FC = () => {
         </Button>
       </div>
 
-      {!isImporting && profile.resumeFile && (
-        <Card className="animate-fade-in" padding="12px" style={{ marginBottom: '16px', borderColor: 'rgba(99,102,241,0.4)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--primary-accent)', fontWeight: 600, marginBottom: '2px' }}>
-                📄 Resume Saved
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                {profile.resumeFile.name}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <Button
-                variant="outline"
-                style={{ padding: '4px 8px', fontSize: '11px' }}
-                onClick={handleImport}
-              >
-                Extract Profile
-              </Button>
-              <button
-                onClick={handleDeleteResume}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid rgba(239,68,68,0.5)',
-                  color: '#ef4444',
-                  borderRadius: '6px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  cursor: 'pointer'
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </Card>
+      {!isImporting && profile.savedResumes && profile.savedResumes.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>Saved Resumes</h3>
+          {profile.savedResumes.map(resume => {
+            const isActive = profile.resumeFile?.id === resume.id;
+            return (
+              <Card key={resume.id} className="animate-fade-in" padding="12px" style={{ marginBottom: '8px', borderColor: isActive ? 'rgba(99,102,241,0.6)' : 'var(--border-light)', background: isActive ? 'rgba(99,102,241,0.05)' : 'var(--bg-card)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: isActive ? 'var(--primary-accent)' : 'var(--text-secondary)', fontWeight: 600, marginBottom: '2px' }}>
+                      {isActive ? '✓ Active Resume' : new Date(resume.uploadDate || Date.now()).toLocaleDateString()}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: isActive ? 600 : 400 }}>
+                      {resume.name}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {!isActive && (
+                      <Button
+                        variant="outline"
+                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                        onClick={() => handleSetActiveResume(resume)}
+                      >
+                        Set Active
+                      </Button>
+                    )}
+                    {isActive && (
+                      <Button
+                        variant="outline"
+                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                        onClick={handleImport}
+                        title="Extract profile data from this resume"
+                      >
+                        Extract Profile
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteResume(resume.id)}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid rgba(239,68,68,0.5)',
+                        color: '#ef4444',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       {isImporting && (
@@ -175,7 +242,7 @@ export const ProfileView: React.FC = () => {
           <Card className="animate-fade-in" padding="16px">
             <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>Upload Resume (PDF/DOCX)</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              Your resume will be saved automatically and used for all future form fills.
+              Your resume will be saved automatically. You can switch between resumes at any time.
             </p>
             <div style={{ marginBottom: '12px' }}>
               <input 
@@ -189,14 +256,6 @@ export const ProfileView: React.FC = () => {
                 }}
               />
             </div>
-            {profile.resumeFile && (
-              <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '12px', fontWeight: 600 }}>
-                ✓ Saved: {profile.resumeFile.name}
-              </div>
-            )}
-            <Button fullWidth onClick={handleImport} disabled={!profile.resumeFile}>
-              Extract Profile with ChatGPT
-            </Button>
           </Card>
         </div>
       )}
@@ -209,6 +268,33 @@ export const ProfileView: React.FC = () => {
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', paddingBottom: '20px' }}>
         {activeTab === 'personal' && (
           <div className="animate-fade-in">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  width: '80px', height: '80px', borderRadius: '50%', overflow: 'hidden',
+                  background: 'var(--bg-card)', border: '2px dashed var(--border-light)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer'
+                }} onClick={() => document.getElementById('photo-upload')?.click()}>
+                  {profile.profilePhoto ? (
+                    <img src={profile.profilePhoto.base64} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: '24px', color: 'var(--text-secondary)' }}>📷</span>
+                  )}
+                </div>
+                <input 
+                  id="photo-upload" 
+                  type="file" 
+                  accept="image/*" 
+                  style={{ display: 'none' }} 
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handlePhotoUpload(file);
+                  }} 
+                />
+              </div>
+            </div>
+
             <Input label="First Name" id="firstName" value={profile.personal.firstName} onChange={e => handlePersonalChange('firstName', e.target.value)} />
             <Input label="Last Name" id="lastName" value={profile.personal.lastName} onChange={e => handlePersonalChange('lastName', e.target.value)} />
             <Input label="Email" id="email" type="email" value={profile.personal.email} onChange={e => handlePersonalChange('email', e.target.value)} />
