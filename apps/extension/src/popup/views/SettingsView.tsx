@@ -11,7 +11,7 @@ export const SettingsView: React.FC = () => {
   );
 
   return (
-    <div className="animate-fade-in" style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+    <div className="animate-fade-in" style={{ padding: '20px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
       <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px' }}>Settings</h2>
 
       <Card className="mb-4" padding="20px">
