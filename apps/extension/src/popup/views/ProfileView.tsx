@@ -136,6 +136,41 @@ export const ProfileView: React.FC = () => {
     } : prev);
   };
 
+  const [editingExpId, setEditingExpId] = useState<string | null>(null);
+
+  const handleAddExperience = () => {
+    const newExp = {
+      id: Math.random().toString(36).substring(2, 9),
+      role: '',
+      company: '',
+      startDate: '',
+      endDate: '',
+      description: '',
+      current: false,
+      years: ''
+    };
+    setProfile(prev => prev ? {
+      ...prev,
+      experience: [...prev.experience, newExp]
+    } : prev);
+    setEditingExpId(newExp.id);
+  };
+
+  const handleRemoveExperience = (id: string) => {
+    setProfile(prev => prev ? {
+      ...prev,
+      experience: prev.experience.filter(e => e.id !== id)
+    } : prev);
+    setEditingExpId(null);
+  };
+
+  const handleExperienceChange = (id: string, field: string, value: string) => {
+    setProfile(prev => prev ? {
+      ...prev,
+      experience: prev.experience.map(e => e.id === id ? { ...e, [field]: value } : e)
+    } : prev);
+  };
+
   const handlePhotoUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -315,15 +350,32 @@ export const ProfileView: React.FC = () => {
             ) : (
               profile.experience.map(exp => (
                 <div key={exp.id} style={{ marginBottom: '12px' }}>
-                  <Card className="mb-4" padding="16px">
-                    <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>{exp.role}</h4>
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>{exp.company}</p>
-                    <Button variant="outline" fullWidth>Edit</Button>
-                  </Card>
+                  {editingExpId === exp.id ? (
+                    <Card className="mb-4" padding="16px">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <Input label="Role" name={`role-${exp.id}`} value={exp.role || ''} onChange={(e) => handleExperienceChange(exp.id, 'role', e.target.value)} />
+                        <Input label="Company" name={`company-${exp.id}`} value={exp.company || ''} onChange={(e) => handleExperienceChange(exp.id, 'company', e.target.value)} />
+                        <Input label="Start Date" name={`start-${exp.id}`} value={exp.startDate || ''} onChange={(e) => handleExperienceChange(exp.id, 'startDate', e.target.value)} />
+                        <Input label="End Date" name={`end-${exp.id}`} value={exp.endDate || ''} onChange={(e) => handleExperienceChange(exp.id, 'endDate', e.target.value)} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                        <Button fullWidth onClick={() => setEditingExpId(null)}>Done</Button>
+                        <Button variant="outline" fullWidth onClick={() => handleRemoveExperience(exp.id)}>Delete</Button>
+                      </div>
+                    </Card>
+                  ) : (
+                    <Card className="mb-4" padding="16px">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: 600 }}>{exp.role || 'Untitled Role'}</h4>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>{exp.company || 'Unknown Company'}</p>
+                      <Button variant="outline" fullWidth onClick={() => setEditingExpId(exp.id)}>Edit</Button>
+                    </Card>
+                  )}
                 </div>
               ))
             )}
-            <Button variant="secondary" fullWidth style={{ marginTop: '12px' }}>+ Add Experience</Button>
+            <Button variant="secondary" fullWidth style={{ marginTop: '12px' }} onClick={handleAddExperience}>+ Add Experience</Button>
           </div>
         )}
         
