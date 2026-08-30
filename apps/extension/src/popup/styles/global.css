@@ -36,12 +36,8 @@ body {
   font-family: 'Inter', sans-serif;
   background-color: var(--bg-dark);
   color: var(--text-primary);
-  width: 400px;
-  height: 600px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
+
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {

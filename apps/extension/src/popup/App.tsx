@@ -54,7 +54,7 @@ const App: React.FC = () => {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', transition: 'background-color 0.3s ease' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '600px', width: '400px', transition: 'background-color 0.3s ease', overflow: 'hidden' }}>
       
       {/* Header */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)' }}>
