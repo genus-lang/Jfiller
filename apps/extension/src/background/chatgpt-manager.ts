@@ -6,6 +6,7 @@ export class ChatGPTManager {
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
       
       if (message.type === 'ASK_CHATGPT') {
+        chrome.runtime.sendMessage({ type: 'PIPELINE_UPDATE', payload: { state: 'PENDING' } }).catch(() => {});
         this.openOrFocusChatGPT(message.payload.question, message.payload.resumeFile, message.payload.jobTabId);
         sendResponse({ success: true });
         return false;
@@ -20,6 +21,8 @@ export class ChatGPTManager {
         if (jsonMatch) {
           try {
             const parsedData = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+            chrome.runtime.sendMessage({ type: 'PIPELINE_UPDATE', payload: { state: 'ANSWER_PARSED' } }).catch(() => {});
+            
             if (parsedData.personal || parsedData.experience) {
               console.log('Parsed Resume Data, saving to Profile...');
               ProfileService.getProfile().then(currentProfile => {
@@ -45,15 +48,19 @@ export class ChatGPTManager {
                 chrome.tabs.sendMessage(jobTabId, {
                   type: 'AUTOFILL_CUSTOM_FIELDS',
                   payload: { customData }
-                });
+                }).catch(e => console.log('Job tab closed, cannot autofill', e));
+                chrome.runtime.sendMessage({ type: 'PIPELINE_UPDATE', payload: { state: 'FIELD_FILLED' } }).catch(() => {});
                 
                 // Also bring the job tab back to focus so the user sees the answers fill!
-                chrome.tabs.update(jobTabId, { active: true });
+                chrome.tabs.update(jobTabId, { active: true }).catch(() => {});
               }
             }
           } catch (e) {
             console.error('Failed to parse ChatGPT JSON response:', e);
+            chrome.runtime.sendMessage({ type: 'PIPELINE_UPDATE', payload: { state: 'ERROR', error: 'Failed to parse JSON' } }).catch(() => {});
           }
+        } else {
+           chrome.runtime.sendMessage({ type: 'PIPELINE_UPDATE', payload: { state: 'ERROR', error: 'No JSON found in response' } }).catch(() => {});
         }
 
         // Clean up
@@ -73,7 +80,7 @@ export class ChatGPTManager {
           chrome.tabs.sendMessage(tab.id!, {
             type: 'PASTE_PROMPT_IN_CHATGPT',
             payload: { prompt, resumeFile, jobTabId }
-          });
+          }).catch(e => console.log('ChatGPT tab has no listener or closed.', e));
         }, 300);
 
       } else {
@@ -103,7 +110,7 @@ export class ChatGPTManager {
               chrome.tabs.sendMessage(tab.id!, {
                 type: 'PASTE_PROMPT_IN_CHATGPT',
                 payload: { prompt, resumeFile, jobTabId }
-              });
+              }).catch(e => console.log('Could not message chatgpt tab after creation', e));
             }, 2000);
           }
         });

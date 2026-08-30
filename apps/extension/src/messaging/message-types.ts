@@ -10,7 +10,22 @@ export type MessageType =
   | 'AUTOFILL_CUSTOM_FIELDS'
   | 'ASK_CHATGPT'
   | 'CHATGPT_ANSWER_READY'
-  | 'PASTE_PROMPT_IN_CHATGPT';
+  | 'PASTE_PROMPT_IN_CHATGPT'
+  | 'PIPELINE_UPDATE';
+
+export type PipelineState = 
+  | 'PENDING'
+  | 'CHATGPT_OPENED'
+  | 'PROMPT_SENT'
+  | 'ANSWER_RECEIVED'
+  | 'ANSWER_PARSED'
+  | 'FIELD_FILLED'
+  | 'ERROR';
+
+export interface PipelineUpdatePayload {
+  state: PipelineState;
+  error?: string;
+}
 
 export interface ExtensionMessage {
   type: MessageType;

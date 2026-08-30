@@ -17,7 +17,7 @@ chrome.action.onClicked.addListener((tab) => {
         files: ['src/overlay/index.js']
       }).then(() => {
         // Now try again
-        chrome.tabs.sendMessage(tab.id!, { type: 'TOGGLE_OVERLAY' });
+        chrome.tabs.sendMessage(tab.id!, { type: 'TOGGLE_OVERLAY' }).catch(e => console.log('Cannot message tab', e));
       }).catch(console.error);
     }
   });

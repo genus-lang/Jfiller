@@ -67,20 +67,32 @@ function waitForElement<T extends Element>(selectors: string[], maxWaitMs = 8000
   });
 }
 
-// Set value on a textarea or contenteditable in a way React detects
 function injectText(el: HTMLElement, text: string) {
   if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-    const textarea = el as HTMLTextAreaElement;
+    const isTextarea = el.tagName === 'TEXTAREA';
+    const prototype = isTextarea ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    
     // Use React's native setter to bypass synthetic event detection
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-    if (nativeSetter) nativeSetter.call(textarea, text);
-    else textarea.value = text;
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    const nativeSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    if (nativeSetter) {
+      nativeSetter.call(el, text);
+    } else {
+      (el as HTMLInputElement | HTMLTextAreaElement).value = text;
+    }
+    
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
-    // contenteditable div
-    el.textContent = text;
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    // For contenteditable (e.g. ProseMirror in newer ChatGPT UI)
+    el.focus();
+    
+    // Attempt execCommand first as it properly triggers rich-text editor events
+    if (!document.execCommand('insertText', false, text)) {
+      // Fallback
+      el.textContent = text;
+      el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    }
   }
 }
 
@@ -149,15 +161,24 @@ export class ChatGPTInjector {
     if (el) el.innerHTML = msgs[status] || status;
   }
 
+  private static broadcastPipeline(state: string, error?: string) {
+    chrome.runtime.sendMessage({
+      type: 'PIPELINE_UPDATE',
+      payload: { state, error }
+    }).catch(() => {});
+  }
+
   public static async pasteAndSubmitPrompt(prompt: string, resumeFile?: any, jobTabId?: number | null) {
     this.activeJobTabId = jobTabId || null;
     this.updateStatus('pasting');
+    this.broadcastPipeline('CHATGPT_OPENED');
 
     // ── STEP 1: Find the textarea ──────────────────────────────────
     const textarea = await waitForElement<HTMLElement>(TEXTAREA_SELECTORS, 10000);
     if (!textarea) {
       console.error('ApplyAI: Could not find ChatGPT text input after 10s. Selectors tried:', TEXTAREA_SELECTORS);
       this.updateStatus('error');
+      this.broadcastPipeline('ERROR', 'Could not find ChatGPT text input');
       return;
     }
     console.log('ApplyAI: Found textarea →', textarea.tagName, textarea.id, textarea.className);
@@ -194,99 +215,124 @@ export class ChatGPTInjector {
     injectText(textarea, prompt);
     console.log('ApplyAI: Injected prompt text, length =', prompt.length);
 
-    // ── STEP 4: Find and click Send ───────────────────────────────
+    // ── STEP 4: Find and click Send until textarea clears ─────────
     this.updateStatus('sending');
     await new Promise(r => setTimeout(r, 600)); // let React register input
 
-    const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
-    console.log('ApplyAI: Send button found →', sendBtn?.tagName, sendBtn?.getAttribute('aria-label'), sendBtn?.disabled);
+    let attempts = 0;
+    const trySend = setInterval(() => {
+      attempts++;
+      const val = textarea.tagName === 'TEXTAREA' 
+        ? (textarea as HTMLTextAreaElement).value 
+        : textarea.textContent;
+      
+      // If the textarea is empty, it means the message was successfully dispatched!
+      if (!val || val.trim() === '') {
+        console.log('ApplyAI: Textarea cleared! Message successfully sent.');
+        clearInterval(trySend);
+        this.updateStatus('waiting');
+        this.broadcastPipeline('PROMPT_SENT');
+        this.waitForAnswerAndSend();
+        return;
+      }
 
-    if (sendBtn && !sendBtn.disabled) {
-      sendBtn.click();
-      console.log('ApplyAI: Clicked send button');
-    } else {
-      // Fallback: simulate Enter key
-      console.warn('ApplyAI: Send button not found or disabled — falling back to Enter key');
-      textarea.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-        bubbles: true, cancelable: true
-      }));
-    }
+      if (attempts > 30) {
+        console.error('ApplyAI: Failed to send message after 30 seconds.');
+        clearInterval(trySend);
+        this.updateStatus('error');
+        this.broadcastPipeline('ERROR', 'Failed to click Send button');
+        return;
+      }
 
-    // ── STEP 5: Wait for generation to finish ─────────────────────
-    this.updateStatus('waiting');
-    this.waitForAnswerAndSend();
+      console.log(`ApplyAI: Attempting to click Send (Attempt ${attempts})...`);
+      const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
+      if (sendBtn && !sendBtn.disabled) {
+        sendBtn.click();
+      } else {
+        // Fallback: simulate Enter key
+        textarea.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        }));
+      }
+    }, 1500); // Check every 1.5s to allow file upload to finish
   }
 
   private static waitForAnswerAndSend() {
     console.log('ApplyAI: Starting robust generation monitor...');
 
-    // Try multiple message selectors to find assistant messages
-    const getAssistantMessages = () => {
-      const messageSels = [
-        'div[data-message-author-role="assistant"] .markdown',
-        '[data-testid^="conversation-turn-"] .markdown',
-        '.agent-turn .markdown',
-        'div.markdown'
-      ];
-      for (const sel of messageSels) {
-        const all = document.querySelectorAll(sel);
-        if (all.length > 0) return Array.from(all);
+    const getLatestAssistantResponse = (): Element | null => {
+      const markdownElements = document.querySelectorAll('.markdown');
+      if (markdownElements.length > 0) {
+        return markdownElements[markdownElements.length - 1];
       }
-      return [];
+      
+      const fallbacks = [
+        'div[data-message-author-role="assistant"]',
+        'article[data-testid^="conversation-turn-"]',
+        '.agent-turn'
+      ];
+      for (const sel of fallbacks) {
+        const els = document.querySelectorAll(sel);
+        if (els.length > 0) return els[els.length - 1];
+      }
+      return null;
     };
 
-    // The number of messages BEFORE our prompt generates an answer
-    const initialMessageCount = getAssistantMessages().length;
+    const initialLastMessage = getLatestAssistantResponse();
+    const initialText = initialLastMessage ? (initialLastMessage.textContent || '') : '';
+    
     let stableTextLength = -1;
-    let stableCount = 0;
+    let stablePolls = 0;
+    let waitingPolls = 0;
 
     const checkInterval = setInterval(() => {
-      const messages = getAssistantMessages();
+      const latestMessage = getLatestAssistantResponse();
+      const currentText = latestMessage ? (latestMessage.textContent || '') : '';
       
-      // Has a new message appeared yet?
-      if (messages.length > initialMessageCount || (initialMessageCount === 0 && messages.length > 0)) {
-        const latestMessage = messages[messages.length - 1];
-        const currentLength = latestMessage.textContent?.length || 0;
-        
+      // Consider it a new message if it's a new element OR its text grew by at least 30 chars
+      const isNewMessage = latestMessage && (latestMessage !== initialLastMessage || currentText.length > initialText.length + 30);
+
+      if (latestMessage && isNewMessage) {
+        const currentLength = currentText.length;
         console.log(`ApplyAI poll — New message found! Length: ${currentLength}`);
 
-        // If the length hasn't changed since the last poll, increment stability counter
         if (currentLength === stableTextLength && currentLength > 0) {
-          stableCount++;
-          // Also verify the "Stop" button is gone just to be extra sure
+          stablePolls++;
           const stopBtn = findElement(STOP_BTN_SELECTORS);
           
-          if (stableCount >= 2 && !stopBtn) { 
+          if (stablePolls >= 2 && !stopBtn) { 
             console.log('ApplyAI: Text length stabilized and stop button gone. Generation complete.');
             clearInterval(checkInterval);
             this.scrapeAndSend(latestMessage);
           }
         } else {
-          // Length is still changing, reset stability counter
           stableTextLength = currentLength;
-          stableCount = 0;
+          stablePolls = 0;
         }
       } else {
-        console.log(`ApplyAI poll — Waiting for new message to appear... (current count: ${messages.length}, initial: ${initialMessageCount})`);
-        
-        // Failsafe: if the stop button isn't there and the send button is back, 
-        // AND we've been waiting a bit, maybe it failed or we missed the injection
+        console.log(`ApplyAI poll — Waiting for new message to appear...`);
         const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
         const stopBtn = findElement(STOP_BTN_SELECTORS);
-        if (!stopBtn && sendBtn && !sendBtn.disabled && stableCount > 10) {
+        if (!stopBtn && sendBtn && !sendBtn.disabled && waitingPolls > 10) {
            console.warn('ApplyAI: Send button active but no new message appeared after 10s.');
-           // We'll keep polling until the safety timeout just in case
         }
-        stableCount++; // Abuse stableCount as a timeout counter while waiting for first char
+        waitingPolls++;
       }
     }, 1000);
 
     // Safety timeout: give up after 90 seconds
     setTimeout(() => {
       clearInterval(checkInterval);
-      console.error('ApplyAI: Safety timeout reached while waiting for generation.');
-      this.updateStatus('error');
+      const last = getLatestAssistantResponse();
+      if (last && last !== initialLastMessage) {
+        console.log("ApplyAI: Timeout reached, scraping available text");
+        this.scrapeAndSend(last);
+      } else {
+        console.error('ApplyAI: Safety timeout reached while waiting for generation.');
+        this.updateStatus('error');
+        this.broadcastPipeline('ERROR', 'Safety timeout reached while waiting for generation');
+      }
     }, 90000);
   }
 
@@ -296,13 +342,16 @@ export class ChatGPTInjector {
 
     if (textContent.length === 0) {
       this.updateStatus('error');
+      this.broadcastPipeline('ERROR', 'Scraped answer was empty');
       return;
     }
+
+    this.broadcastPipeline('ANSWER_RECEIVED');
 
     chrome.runtime.sendMessage({
       type: 'CHATGPT_ANSWER_READY',
       payload: { answer: textContent, jobTabId: this.activeJobTabId }
-    } as ExtensionMessage, () => {
+    }, () => {
       this.updateStatus('done');
       setTimeout(() => {
         const container = document.getElementById('applyai-automation-container');

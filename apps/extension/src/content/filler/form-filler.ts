@@ -55,7 +55,7 @@ export class FormFiller {
     const tagName = element.tagName.toLowerCase();
     const type = element.getAttribute('type')?.toLowerCase();
 
-    if (tagName === 'textarea' || (tagName === 'input' && (!type || ['text', 'email', 'tel', 'url'].includes(type)))) {
+    if (tagName === 'textarea' || (tagName === 'input' && (!type || ['text', 'email', 'tel', 'url', 'number', 'password', 'search'].includes(type)))) {
       return TextFiller.fill(element, String(value));
     }
 

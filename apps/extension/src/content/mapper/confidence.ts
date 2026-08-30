@@ -26,7 +26,7 @@ export class ConfidenceEngine {
     const HIGH_CONFIDENCE_THRESHOLD = 0.85;
 
     // Certain fields inherently need confirmation even with high confidence
-    const sensitiveFields: ProfileField[] = ['experience', 'resume', 'skills'];
+    const sensitiveFields: ProfileField[] = ['experience', 'skills'];
     const isSensitive = sensitiveFields.includes(profileField);
 
     const requiresConfirmation = isSensitive || confidence < HIGH_CONFIDENCE_THRESHOLD;

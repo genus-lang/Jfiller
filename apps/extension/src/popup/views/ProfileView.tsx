@@ -13,11 +13,24 @@ export const ProfileView: React.FC = () => {
 
   useEffect(() => {
     // Load profile from background script on mount
-    chrome.runtime.sendMessage({ type: 'GET_PROFILE' } as ExtensionMessage, (response: GetProfileResponse) => {
-      if (!chrome.runtime.lastError && response?.profile) {
-        setProfile(response.profile);
+    const fetchProfile = () => {
+      chrome.runtime.sendMessage({ type: 'GET_PROFILE' } as ExtensionMessage, (response: GetProfileResponse) => {
+        if (!chrome.runtime.lastError && response?.profile) {
+          setProfile(response.profile);
+        }
+      });
+    };
+    fetchProfile();
+
+    // Listen for background updates (e.g., ChatGPT extracted the resume and saved it)
+    const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes['applyai_profile']) {
+        setProfile(changes['applyai_profile'].newValue);
       }
-    });
+    };
+    chrome.storage.local.onChanged.addListener(storageListener);
+    
+    return () => chrome.storage.local.onChanged.removeListener(storageListener);
   }, []);
 
   const persistProfile = (updatedProfile: MasterProfile) => {
