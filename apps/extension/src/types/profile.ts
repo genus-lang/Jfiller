@@ -87,6 +87,7 @@ export interface MasterProfile {
   profilePhoto?: ResumeFile;
   resumeFile?: ResumeFile;
   savedResumes?: ResumeFile[];
+  customAnswers?: Record<string, string>;
 }
 
 export interface SavedAnswer {

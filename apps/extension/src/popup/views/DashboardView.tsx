@@ -118,14 +118,38 @@ export const DashboardView: React.FC = () => {
                   } as ExtensionMessage).catch(console.error);
                 }
 
-                // Ask ChatGPT to fill EVERY field on the form based on the resume (except the file uploads)
-                const unknownFields = mappings.filter(m => m.label && m.profileField !== 'resume' && m.profileField !== 'photo');
-                const unknownLabels = unknownFields.map(m => m.label).join(', ');
+                // Filter unknown fields using learned custom answers
+                const allUnknownFields = mappings.filter(m => m.label && m.profileField !== 'resume' && m.profileField !== 'photo');
+                const customAnswers = response.profile.customAnswers || {};
+                
+                const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+                
+                const remainingUnknownFields = allUnknownFields.filter(m => {
+                  const normalizedLabel = normalize(m.label);
+                  return !Object.keys(customAnswers).some(k => normalize(k) === normalizedLabel);
+                });
+
+                // If we have some learned answers, autofill them immediately!
+                if (activeTabId && Object.keys(customAnswers).length > 0) {
+                  chrome.tabs.sendMessage(activeTabId, {
+                    type: 'AUTOFILL_CUSTOM_FIELDS',
+                    payload: { customData: customAnswers }
+                  } as ExtensionMessage).catch(console.error);
+                }
+
+                if (remainingUnknownFields.length === 0) {
+                  // Everything was resolved locally!
+                  setPipelineState('FIELD_FILLED');
+                  return;
+                }
+
+                // Ask ChatGPT to fill only the remaining fields
+                const remainingLabels = remainingUnknownFields.map(m => m.label).join(', ');
                 
                 const profileWithoutFile = { ...response.profile };
                 delete profileWithoutFile.resumeFile;
                 
-                const prompt = `I am applying for a job. Based strictly on the attached resume file (or this profile data if no file is attached: ${JSON.stringify(profileWithoutFile)}), please provide short, accurate answers to the following form fields: [${unknownLabels}]. For numeric fields, provide only digits (e.g. 0) and NEVER words like 'Not specified'. Return ONLY a valid JSON object wrapped in \`\`\`json blocks where the keys are exactly these question labels and the values are your short string answers. Like this: \`\`\`json\n{"jobfill_custom_answers": {"Field 1": "Answer 1"}}\n\`\`\``;
+                const prompt = `I am applying for a job. Based strictly on the attached resume file (or this profile data if no file is attached: ${JSON.stringify(profileWithoutFile)}), please provide short, accurate answers to the following form fields: [${remainingLabels}]. For numeric fields, provide only digits (e.g. 0) and NEVER words like 'Not specified'. Return ONLY a valid JSON object wrapped in \`\`\`json blocks where the keys are exactly these question labels and the values are your short string answers. Like this: \`\`\`json\n{"jobfill_custom_answers": {"Field 1": "Answer 1"}}\n\`\`\``;
                 
                 chrome.runtime.sendMessage({
                   type: 'ASK_CHATGPT',

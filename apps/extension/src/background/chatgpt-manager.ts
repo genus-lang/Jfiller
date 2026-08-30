@@ -43,6 +43,30 @@ export class ChatGPTManager {
             } else {
               // It's likely custom fields data!
               const customData = parsedData.jobfill_custom_answers || parsedData;
+              
+              // NEW: Learn and save these answers to MasterProfile
+              ProfileService.getProfile().then(currentProfile => {
+                const updatedProfile = currentProfile || ProfileService.getEmptyProfile();
+                const currentCustomAnswers = updatedProfile.customAnswers || {};
+                
+                let addedAny = false;
+                for (const [key, val] of Object.entries(customData)) {
+                  if (typeof val === 'string' && val.trim() !== '') {
+                    // Normalize the key to prevent duplicates (e.g. "Name" and "name:")
+                    const normalizedKey = key.trim().replace(/:$/, '');
+                    
+                    // Only add if we don't have it (or to update it, we can just assign it)
+                    currentCustomAnswers[normalizedKey] = val;
+                    addedAny = true;
+                  }
+                }
+                
+                if (addedAny) {
+                  updatedProfile.customAnswers = currentCustomAnswers;
+                  ProfileService.saveProfile(updatedProfile);
+                }
+              });
+
               console.log('Parsed Custom Fields Answers, beaming back to job tab:', jobTabId, customData);
               if (jobTabId) {
                 chrome.tabs.sendMessage(jobTabId, {
