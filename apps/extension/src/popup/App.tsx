@@ -54,10 +54,10 @@ const App: React.FC = () => {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '600px', width: '400px', transition: 'background-color 0.3s ease', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', transition: 'background-color 0.3s ease', overflow: 'hidden' }}>
       
       {/* Header */}
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           {profilePhoto ? (
             <img 
@@ -111,15 +111,15 @@ const App: React.FC = () => {
         </button>
       </div>
 
-      {/* Main Content Area */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* Main Content Area - Added padding bottom to account for fixed navigation */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', paddingBottom: '45px' }}>
         {currentView === 'dashboard' && <DashboardView />}
         {currentView === 'profile' && <ProfileView />}
         {currentView === 'settings' && <SettingsView />}
       </div>
 
       {/* Bottom Navigation */}
-      <div style={{ display: 'flex', borderTop: '1px solid var(--border-light)', background: 'var(--bg-card)' }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', borderTop: '1px solid var(--border-light)', background: 'var(--bg-card)', zIndex: 1000, height: '45px', alignItems: 'center' }}>
         <div style={navItemStyle(currentView === 'dashboard')} onClick={() => setCurrentView('dashboard')}>
           Dashboard
         </div>
