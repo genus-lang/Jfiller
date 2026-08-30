@@ -265,7 +265,7 @@ export const ProfileView: React.FC = () => {
         <div style={tabStyle(activeTab === 'experience')} onClick={() => setActiveTab('experience')}>Experience</div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', paddingBottom: '90px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', paddingBottom: '20px' }}>
         {activeTab === 'personal' && (
           <div className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
@@ -326,12 +326,12 @@ export const ProfileView: React.FC = () => {
             <Button variant="secondary" fullWidth style={{ marginTop: '12px' }}>+ Add Experience</Button>
           </div>
         )}
-      </div>
-
-      <div style={{ position: 'fixed', bottom: '45px', left: 0, right: 0, padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-light)', display: 'flex', gap: '8px', alignItems: 'center', zIndex: 900 }}>
-        <Button fullWidth onClick={handleSave}>
-          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? '✓ Saved!' : 'Save Profile'}
-        </Button>
+        {/* Save Button now scrolls with content */}
+        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-light)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Button fullWidth onClick={handleSave}>
+            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? '✓ Saved!' : 'Save Profile'}
+          </Button>
+        </div>
       </div>
     </div>
   );
