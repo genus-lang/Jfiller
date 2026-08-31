@@ -21,6 +21,11 @@ export class EventDispatcher {
    * Dispatches standard DOM events to trigger framework state updates.
    */
   public static dispatchEvents(element: HTMLElement, events: string[] = ['focus', 'input', 'change', 'blur']) {
+    const wasReadonly = element.hasAttribute('readonly');
+    if (wasReadonly) {
+      element.removeAttribute('readonly');
+    }
+
     events.forEach(eventName => {
       let event;
       if (eventName === 'input' || eventName === 'change') {
@@ -30,5 +35,9 @@ export class EventDispatcher {
       }
       element.dispatchEvent(event);
     });
+
+    if (wasReadonly) {
+      element.setAttribute('readonly', 'readonly');
+    }
   }
 }

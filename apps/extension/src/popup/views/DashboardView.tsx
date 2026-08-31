@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ScanFormResponse, ExtensionMessage, AutofillFormPayload, GetProfileResponse } from '../../messaging/message-types';
+import { DetectedField } from '../../types/field';
 
 export const DashboardView: React.FC = () => {
   const [fieldCount, setFieldCount] = useState<number>(0);
   const [matchScore, setMatchScore] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [mappings, setMappings] = useState<any[]>([]);
+  const [fields, setFields] = useState<DetectedField[]>([]);
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const [pipelineState, setPipelineState] = useState<string | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export const DashboardView: React.FC = () => {
           if (response && response.fields) {
             setFieldCount(response.fields.length);
             setMappings(response.mappings || []);
+            setFields(response.fields || []);
             setActiveTabId(activeTab.id || null);
             
             // Calculate a rough match score based on mapped fields
@@ -144,12 +147,33 @@ export const DashboardView: React.FC = () => {
                 }
 
                 // Ask ChatGPT to fill only the remaining fields
-                const remainingLabels = remainingUnknownFields.map(m => m.label).join(', ');
+                const remainingLabelsWithContext = remainingUnknownFields.map(m => {
+                  const field = fields.find(f => f.id === m.fieldId);
+                  let context = '';
+                  
+                  if (field) {
+                    if (field.type === 'select' && field.options && field.options.length > 0) {
+                      const optionLabels = field.options.map(o => o.label || o.value).filter(Boolean).join(', ');
+                      context = ` (Options: ${optionLabels})`;
+                    } else if (field.type === 'date' || m.label.toLowerCase().includes('date') || m.label.toLowerCase().includes('dob')) {
+                      if (field.type === 'date') {
+                        context = ` (Format exactly as YYYY-MM-DD)`;
+                      } else {
+                        const formatHint = field.placeholder ? `format of this placeholder: ${field.placeholder}` : `MM/DD/YYYY`;
+                        context = ` (Format exactly as ${formatHint})`;
+                      }
+                    }
+                  }
+                  return `"${m.label}"${context}`;
+                }).join(', ');
                 
                 const profileWithoutFile = { ...response.profile };
                 delete profileWithoutFile.resumeFile;
+                delete profileWithoutFile.profilePhoto;
+                delete profileWithoutFile.savedResumes; // Remove base64 saved resumes
+                delete profileWithoutFile.customAnswers; // Remove cached answers to keep prompt clean
                 
-                const prompt = `I am applying for a job. Based strictly on the attached resume file (or this profile data if no file is attached: ${JSON.stringify(profileWithoutFile)}), please provide short, accurate answers to the following form fields: [${remainingLabels}]. For numeric fields, provide only digits (e.g. 0) and NEVER words like 'Not specified'. Return ONLY a valid JSON object wrapped in \`\`\`json blocks where the keys are exactly these question labels and the values are your short string answers. Like this: \`\`\`json\n{"jobfill_custom_answers": {"Field 1": "Answer 1"}}\n\`\`\``;
+                const prompt = `I am applying for a job. Based strictly on the attached resume file (or this profile data if no file is attached: ${JSON.stringify(profileWithoutFile)}), please provide short, accurate answers to the following form fields. The context in parentheses is for your information only, DO NOT include the parentheses in the JSON keys:\n[${remainingLabelsWithContext}]\nFor numeric fields, provide only digits (e.g. 0) and NEVER words like 'Not specified'. Return ONLY a valid JSON object wrapped in \`\`\`json blocks where the keys are EXACTLY the original question labels (without parentheses) and the values are your short string answers. Like this: \`\`\`json\n{"jobfill_custom_answers": {"Field 1": "Answer 1"}}\n\`\`\``;
                 
                 chrome.runtime.sendMessage({
                   type: 'ASK_CHATGPT',

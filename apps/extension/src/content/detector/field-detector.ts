@@ -12,7 +12,8 @@ export class FieldDetector {
       '[role="combobox"]',
       '[role="listbox"]',
       '[role="checkbox"]',
-      '[role="radio"]'
+      '[role="radio"]',
+      '[contenteditable="true"]'
     ];
     
     const fields = container.querySelectorAll(selectors.join(', '));

@@ -5,13 +5,24 @@ export class FormDetector {
   public static detectForms(): HTMLElement[] {
     const forms = Array.from(document.querySelectorAll('form'));
     
-    // Some SPAs (like Workday) might not use <form> tags, so we might
-    // need to look for containers with multiple inputs if no <form> is found.
+    // Some SPAs (like Workday or Google Forms) might not use <form> tags, so we might
+    // need to look for containers with actionable inputs if no <form> is found.
     if (forms.length === 0) {
-      // Basic heuristic: find divs that contain multiple inputs
-      const allInputs = document.querySelectorAll('input, select, textarea');
-      if (allInputs.length > 2) {
-        // Just return the body or a common ancestor as a fallback "form"
+      // Basic heuristic: find if there are any inputs or ARIA input roles
+      const selectors = [
+        'input:not([type="hidden"]):not([type="submit"]):not([type="button"])',
+        'select',
+        'textarea',
+        '[role="textbox"]',
+        '[role="combobox"]',
+        '[role="listbox"]',
+        '[role="checkbox"]',
+        '[role="radio"]',
+        '[contenteditable="true"]'
+      ];
+      const allInputs = document.querySelectorAll(selectors.join(', '));
+      if (allInputs.length > 0) {
+        // Just return the body as a fallback "form"
         return [document.body];
       }
     }

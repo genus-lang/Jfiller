@@ -25,6 +25,10 @@ export class FileFiller {
       dataTransfer.items.add(file);
       
       input.files = dataTransfer.files;
+      
+      // Some frameworks require both 'input' and 'change' events to register the file
+      const event = new Event('input', { bubbles: true });
+      input.dispatchEvent(event);
       input.dispatchEvent(new Event('change', { bubbles: true }));
       
       return true;

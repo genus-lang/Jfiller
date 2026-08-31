@@ -86,13 +86,26 @@ function injectText(el: HTMLElement, text: string) {
     // For contenteditable (e.g. ProseMirror in newer ChatGPT UI)
     el.focus();
     
-    // Attempt execCommand first as it properly triggers rich-text editor events
-    if (!document.execCommand('insertText', false, text)) {
-      // Fallback
-      el.textContent = text;
-      el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    }
+    // Modern ChatGPT requires a proper paste event for React state to update
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', text);
+    const pasteEvent = new ClipboardEvent('paste', {
+      clipboardData: dataTransfer,
+      bubbles: true,
+      cancelable: true
+    });
+    el.dispatchEvent(pasteEvent);
+
+    // Fallback if paste didn't populate the element
+    setTimeout(() => {
+      if (!el.textContent?.includes(text.substring(0, 5))) {
+        if (!document.execCommand('insertText', false, text)) {
+          el.textContent = text;
+          el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+        }
+      }
+    }, 50);
   }
 }
 
@@ -247,6 +260,8 @@ export class ChatGPTInjector {
       console.log(`ApplyAI: Attempting to click Send (Attempt ${attempts})...`);
       const sendBtn = findElement<HTMLButtonElement>(SEND_BTN_SELECTORS);
       if (sendBtn && !sendBtn.disabled) {
+        sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         sendBtn.click();
       } else {
         // Fallback: simulate Enter key
@@ -262,12 +277,21 @@ export class ChatGPTInjector {
     console.log('ApplyAI: Starting robust generation monitor...');
 
     const getLatestAssistantResponse = (): Element | null => {
+      // 1. Try the newest standard data-attributes
+      const newMarkdownElements = document.querySelectorAll('[data-message-role="assistant"] [data-assistant-markdown=""], [data-assistant-markdown=""]');
+      if (newMarkdownElements.length > 0) {
+        return newMarkdownElements[newMarkdownElements.length - 1];
+      }
+
+      // 2. Try the legacy .markdown class
       const markdownElements = document.querySelectorAll('.markdown');
       if (markdownElements.length > 0) {
         return markdownElements[markdownElements.length - 1];
       }
       
+      // 3. Try container fallbacks
       const fallbacks = [
+        '[data-message-role="assistant"]',
         'div[data-message-author-role="assistant"]',
         'article[data-testid^="conversation-turn-"]',
         '.agent-turn'

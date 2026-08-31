@@ -2,6 +2,7 @@
 
 JobFill is an AI-powered Chrome extension designed to automate the tedious process of filling out job application forms. It leverages ChatGPT completely in the background to read your resume, extract your profile, and intelligently map your information to the varied and complex fields found on modern job application portals (Workday, Greenhouse, Lever, etc.).
 
+![ApplyAI Workflow Diagram](assets/workflow_diagram.jpg)
 ## 🚀 Features
 
 - **Upload Actual Resumes (PDF/DOCX)**: Upload your resume once. The extension securely encodes and stores it locally for all future applications.
